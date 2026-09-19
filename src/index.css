@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Russo One", "Titillium Web", system-ui, sans-serif;
+  --font-ui: "Titillium Web", system-ui, -apple-system, sans-serif;
+  --color-f1red: #e10600;
+  --color-f1red-dark: #a30400;
+  --color-gold: #ffd400;
+  --color-boost: #38bdf8;
+  --color-night: #07061f;
+  --color-carbon: #0d0d14;
+  --animate-fade-in: fadeIn 0.35s ease both;
+  --animate-slide-up: slideUp 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+  --animate-pop: pop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
+  --animate-pulse-glow: pulseGlow 1.5s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-flicker: flicker 1.2s steps(2, end) infinite;
+  --animate-marquee: marquee 18s linear infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(28px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes pop {
+  0% { opacity: 0; transform: scale(0.6); }
+  70% { opacity: 1; transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(225, 6, 0, 0.55), 0 10px 30px rgba(225, 6, 0, 0.35); }
+  50% { box-shadow: 0 0 0 10px rgba(225, 6, 0, 0), 0 10px 40px rgba(225, 6, 0, 0.55); }
+}
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-night);
+}
+
+body {
+  font-family: var(--font-ui);
+  color: #fff;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+canvas {
+  display: block;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.carbon {
+  background-color: #0d0d14;
+  background-image:
+    linear-gradient(27deg, #151520 5px, transparent 5px),
+    linear-gradient(207deg, #151520 5px, transparent 5px),
+    linear-gradient(27deg, #0f0f17 5px, transparent 5px),
+    linear-gradient(207deg, #0f0f17 5px, transparent 5px),
+    linear-gradient(90deg, #111119 10px, transparent 10px),
+    linear-gradient(#0c0c13 25%, #101018 25%, #101018 50%, transparent 50%, transparent 75%, #12121a 75%, #12121a);
+  background-size: 20px 20px;
+}
+
+.checkered {
+  background-image: repeating-conic-gradient(#f3f3f3 0 25%, #101010 0 50%);
+  background-size: 18px 18px;
+}
+
+.stripes-red {
+  background-image: repeating-linear-gradient(135deg, #e10600 0 12px, #b20500 12px 24px);
+}
+
+.skew-panel {
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+}
+
+.btn-race {
+  position: relative;
+  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.btn-race:active {
+  transform: scale(0.96);
+  filter: brightness(1.15);
+}
+
+.touch-btn {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.08s ease, background-color 0.08s ease;
+}
+.touch-btn:active,
+.touch-btn[data-active="true"] {
+  transform: scale(0.92);
+}
+
+.scroll-thin::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+.text-glow-red {
+  text-shadow: 0 0 18px rgba(225, 6, 0, 0.7), 0 2px 0 rgba(0, 0, 0, 0.6);
+}
+.text-glow-gold {
+  text-shadow: 0 0 18px rgba(255, 212, 0, 0.6), 0 2px 0 rgba(0, 0, 0, 0.6);
+}
