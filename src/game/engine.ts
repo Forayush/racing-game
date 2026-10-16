@@ -61,6 +61,18 @@ export interface RunStats {
   driverId: string;
 }
 
+/** Live run state for DOM UI (pause card, touch boost ring). */
+export interface HudSnapshot {
+  score: number;
+  timeLeft: number;
+  sector: number;
+  combo: number;
+  /** Meter charge 0..1, or the remaining burn while boosting. */
+  boostFill: number;
+  boosting: boolean;
+  boostReady: boolean;
+}
+
 export interface GameCallbacks {
   onGameOver: (stats: RunStats) => void;
   onPhase: (phase: Phase) => void;
@@ -125,6 +137,10 @@ export class Game {
   // viewport
   private W = 0;
   private H = 0;
+  private dpr = 1;
+  private safe = { top: 0, right: 0, bottom: 0, left: 0 };
+  private touchMode = false;
+  private bottomInset = 0;
   private sx = 1;
   private sy = 1;
   private horizon = 1;
@@ -239,13 +255,17 @@ export class Game {
   resize(w: number, h: number, dpr: number) {
     this.W = w;
     this.H = h;
+    this.dpr = dpr;
     this.canvas.width = Math.floor(w * dpr);
     this.canvas.height = Math.floor(h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // portrait phones get a slightly narrower projection so the car doesn't swallow the screen
     this.sx = h > w ? w * 0.42 : Math.min(w / 2, h * 0.55);
     this.sy = h / 2;
-    this.horizon = Math.round(h * 0.5);
+    // the car's wheels sit at horizon + sy - 2.5% of the height; on portrait touch screens raise
+    // the whole view so they clear the on-screen buttons (landscape already has room between them)
+    const lift = h > w && this.bottomInset > 0 ? clamp(this.bottomInset - h * 0.025 + 8, 0, h * 0.16) : 0;
+    this.horizon = Math.round(h * 0.5 - lift);
     this.ui = clamp(Math.min(w, h) / 430, 0.8, 1.45);
     this.drawDistance = w < 700 ? 220 : 300;
     this.skyImg = renderSky(w, h, this.horizon);
@@ -256,6 +276,33 @@ export class Game {
     this.vignetteBlue = makeVignette(w, h, '56,189,248', 0.4, 0.6);
     // keep a frame on screen if we're frozen (paused) while the viewport changes
     if (this.phase === 'paused' && this.track) this.render();
+  }
+
+  /** Device safe-area insets in CSS px; the HUD keeps clear of them. */
+  setSafeArea(top: number, right: number, bottom: number, left: number) {
+    this.safe = { top, right, bottom, left };
+  }
+
+  /** Touch layout: tap prompts in the HUD, and room for on-screen controls `bottomInset` px tall. */
+  setTouchMode(on: boolean, bottomInset = 0) {
+    const inset = on ? Math.max(0, Math.round(bottomInset)) : 0;
+    if (on === this.touchMode && inset === this.bottomInset) return;
+    this.touchMode = on;
+    this.bottomInset = inset;
+    if (this.W > 0 && this.H > 0) this.resize(this.W, this.H, this.dpr);
+  }
+
+  snapshot(): HudSnapshot {
+    const boosting = this.boostTime > 0;
+    return {
+      score: Math.floor(this.score),
+      timeLeft: Math.max(0, this.timeLeft),
+      sector: this.checkpoints + 1,
+      combo: this.combo,
+      boostFill: boosting ? this.boostTime / BOOST_DURATION : this.boostMeter,
+      boosting,
+      boostReady: !boosting && this.boostMeter >= 1,
+    };
   }
 
   setDriver(d: Driver) {
@@ -292,6 +339,9 @@ export class Game {
     this.phase = 'paused';
     this.audio.stopEngine();
     this.input.releaseAll();
+    // settle the score ticker and repaint, so the frozen HUD matches the pause card
+    this.displayScore = this.score;
+    if (this.W > 0 && this.H > 0) this.render();
     this.cb.onPhase(this.phase);
   }
 
@@ -742,7 +792,7 @@ export class Game {
     if (before < 1 && this.boostMeter >= 1 && !this.boostReadyAnnounced) {
       this.boostReadyAnnounced = true;
       this.audio.playBoostReady();
-      this.texts.add('BOOST READY', this.W / 2, this.H * 0.3, COLORS.boost, 26 * this.ui, 'press boost', 1.2);
+      this.texts.add('BOOST READY', this.W / 2, this.H * 0.3, COLORS.boost, 26 * this.ui, this.touchMode ? 'tap BOOST' : 'press SPACE', 1.2);
     }
   }
 
@@ -1238,192 +1288,328 @@ export class Game {
     ctx.fill();
   }
 
+  private roundRect(x: number, y: number, w: number, h: number, r: number) {
+    const ctx = this.ctx;
+    const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  private text(str: string, x: number, y: number, font: string, color: string, align: CanvasTextAlign = 'left') {
+    const ctx = this.ctx;
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.fillText(str, x, y);
+  }
+
+  /** Top edge for HUD panels, clear of any notch / status bar. */
+  private hudTop() {
+    return Math.max(12 * this.ui, this.safe.top + 6);
+  }
+
   private drawHud() {
     const ctx = this.ctx;
-    const W = this.W;
-    const u = this.ui;
-    const pad = 12 * u;
-    const boosting = this.boostTime > 0;
+    // narrow screens get slimmer panels so score / time / dash never collide
+    const compact = this.W < 600;
     ctx.save();
     ctx.textBaseline = 'alphabetic';
-
-    // ---- score (top-left)
-    const scoreW = 138 * u;
-    const scoreH = this.best > 0 ? 70 * u : 50 * u;
-    ctx.fillStyle = 'rgba(8,8,14,0.62)';
-    this.panel(pad - 4 * u, pad, scoreW, scoreH, 12 * u);
-    ctx.fillStyle = COLORS.accent;
-    ctx.fillRect(pad - 4 * u, pad, 4 * u, scoreH);
-    ctx.font = `700 ${10 * u}px ${FONT_UI}`;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.textAlign = 'left';
-    ctx.fillText('SCORE', pad + 8 * u, pad + 15 * u);
-    ctx.font = `${24 * u}px ${FONT_DISPLAY}`;
-    ctx.fillStyle = boosting ? COLORS.boost : '#ffffff';
-    ctx.fillText(fmt(this.displayScore), pad + 8 * u, pad + 41 * u);
-    if (this.best > 0) {
-      ctx.font = `600 ${10 * u}px ${FONT_UI}`;
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
-      ctx.fillText(`BEST ${fmt(this.best)}`, pad + 8 * u, pad + 64 * u);
-    }
-    // combo
-    if (this.combo > 1) {
-      const pulse = 1 + 0.08 * Math.sin(performance.now() / 90);
-      ctx.save();
-      ctx.translate(pad + 8 * u, pad + 92 * u);
-      ctx.scale(pulse, pulse);
-      ctx.font = `${22 * u}px ${FONT_DISPLAY}`;
-      ctx.fillStyle = COLORS.gold;
-      ctx.fillText(`×${this.combo}`, 0, 0);
-      const cw = ctx.measureText(`×${this.combo}`).width;
-      ctx.font = `700 ${11 * u}px ${FONT_UI}`;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText('COMBO', cw + 6 * u, 0);
-      ctx.restore();
-      // combo timer bar
-      const bw = 90 * u;
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(pad + 8 * u, pad + 98 * u, bw, 4 * u);
-      ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(pad + 8 * u, pad + 98 * u, bw * clamp(this.comboTimer / COMBO_WINDOW, 0, 1), 4 * u);
-    }
-
-    // ---- time (top-centre)
-    const low = this.timeLeft < 10 && this.phase === 'racing';
-    const tw = 120 * u;
-    ctx.fillStyle = low ? 'rgba(120,0,0,0.7)' : 'rgba(8,8,14,0.62)';
-    this.panel(W / 2 - tw / 2, pad, tw, 56 * u, 12 * u);
-    ctx.textAlign = 'center';
-    ctx.font = `700 ${10 * u}px ${FONT_UI}`;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('TIME', W / 2, pad + 15 * u);
-    const tScale = low ? 1 + this.lowTimePulse * 0.25 : 1;
-    ctx.save();
-    ctx.translate(W / 2, pad + 44 * u);
-    ctx.scale(tScale, tScale);
-    ctx.font = `${30 * u}px ${FONT_DISPLAY}`;
-    ctx.fillStyle = low ? '#ff5252' : '#ffffff';
-    const t = Math.max(0, this.timeLeft);
-    ctx.fillText(t < 10 ? t.toFixed(1) : Math.ceil(t).toString(), 0, 0);
-    ctx.restore();
-
-    // boost bar under the timer
-    const bw = 150 * u;
-    const bh = 9 * u;
-    const bx = W / 2 - bw / 2;
-    const by = pad + 64 * u;
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    this.panel(bx - 3 * u, by - 3 * u, bw + 6 * u, bh + 6 * u, 5 * u);
-    const fill = boosting ? this.boostTime / BOOST_DURATION : this.boostMeter;
-    const ready = !boosting && this.boostMeter >= 1;
-    const glow = ready ? 0.6 + 0.4 * Math.sin(performance.now() / 120) : 0;
-    ctx.fillStyle = boosting ? '#fb923c' : ready ? `rgba(125,211,252,${0.7 + glow * 0.3})` : COLORS.boost;
-    this.panel(bx, by, bw * clamp(fill, 0, 1), bh, 4 * u);
-    ctx.font = `700 ${9.5 * u}px ${FONT_UI}`;
-    ctx.fillStyle = ready ? '#e0f2fe' : 'rgba(255,255,255,0.7)';
-    ctx.fillText(boosting ? 'BOOSTING  ×2 SCORE' : ready ? 'BOOST READY  —  SPACE / TAP' : 'BOOST', W / 2, by + bh + 13 * u);
-
-    // sector progress
-    const segToGo = Math.max(0, this.nextCheckpoint - this.distance);
-    const prog = 1 - segToGo / CHECKPOINT_SEGMENTS;
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.fillRect(bx, by + bh + 20 * u, bw, 2 * u);
-    ctx.fillStyle = '#4ade80';
-    ctx.fillRect(bx, by + bh + 20 * u, bw * clamp(prog, 0, 1), 2 * u);
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = `600 ${9 * u}px ${FONT_UI}`;
-    ctx.fillText(`SECTOR ${this.checkpoints + 1}  ·  ${((segToGo * METERS_PER_SEGMENT) / 1000).toFixed(2)} km`, W / 2, by + bh + 33 * u);
-
-    // ---- speed (right, below the pause button)
-    const kmh = Math.round((this.speed / MAX_SPEED) * TOP_KMH);
-    const gear = Math.max(1, Math.min(8, Math.ceil((this.speed / this.maxSpeed) * 8)));
-    const sw = 130 * u;
-    const sxr = W - pad - sw;
-    const syr = pad + 50 * u;
-    ctx.fillStyle = 'rgba(8,8,14,0.62)';
-    this.panel(sxr, syr, sw + 4 * u, 46 * u, 12 * u);
-    ctx.textAlign = 'right';
-    ctx.font = `${30 * u}px ${FONT_DISPLAY}`;
-    ctx.fillStyle = boosting ? '#fb923c' : '#ffffff';
-    const jitter = this.speed > this.maxSpeed * 0.97 ? (Math.random() - 0.5) * 1.5 : 0;
-    ctx.fillText(kmh.toString(), W - pad - 36 * u, syr + 36 * u + jitter);
-    ctx.textAlign = 'left';
-    ctx.font = `700 ${9 * u}px ${FONT_UI}`;
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('KM/H', W - pad - 31 * u, syr + 20 * u);
-    ctx.font = `${16 * u}px ${FONT_DISPLAY}`;
-    ctx.fillStyle = COLORS.gold;
-    ctx.fillText(this.speed < 1 ? 'N' : gear.toString(), W - pad - 31 * u, syr + 38 * u);
-    // speed bar
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(sxr + 6 * u, syr + 52 * u, sw - 6 * u, 4 * u);
-    const sp = clamp(this.speed / this.maxSpeed, 0, 1.32);
-    const grad = ctx.createLinearGradient(sxr, 0, sxr + sw, 0);
-    grad.addColorStop(0, '#22c55e');
-    grad.addColorStop(0.7, '#ffd400');
-    grad.addColorStop(1, '#e10600');
-    ctx.fillStyle = grad;
-    ctx.fillRect(sxr + 6 * u, syr + 52 * u, (sw - 6 * u) * Math.min(1, sp), 4 * u);
-
-    // off-road warning
-    if (this.offRoad && this.phase === 'racing' && Math.floor(performance.now() / 160) % 2 === 0) {
-      ctx.textAlign = 'center';
-      ctx.font = `${18 * u}px ${FONT_DISPLAY}`;
-      ctx.fillStyle = COLORS.gold;
-      ctx.fillText('⚠ OFF TRACK', W / 2, this.H * 0.62);
-    }
-
+    this.drawScore(compact);
+    this.drawTimer(compact);
+    this.drawDash(compact);
+    this.drawOffTrack();
     ctx.restore();
   }
 
+  // ---- score + combo (top-left)
+  private drawScore(compact: boolean) {
+    const ctx = this.ctx;
+    const u = this.ui;
+    const x = Math.max(8 * u, this.safe.left + 4);
+    const y = this.hudTop();
+    const w = (compact ? 118 : 150) * u;
+    const hasBest = this.best > 0;
+    const h = (hasBest ? 64 : 50) * u;
+    const boosting = this.boostTime > 0;
+
+    ctx.fillStyle = 'rgba(8,8,14,0.66)';
+    this.panel(x, y, w, h, 12 * u);
+    ctx.fillStyle = COLORS.accent;
+    ctx.fillRect(x, y, 4 * u, h);
+
+    const tx = x + 12 * u;
+    this.text('SCORE', tx, y + 15 * u, `700 ${10 * u}px ${FONT_UI}`, 'rgba(255,255,255,0.6)');
+    if (boosting) {
+      // ×2 multiplier tag beside the label
+      const bx = tx + 42 * u;
+      const by = y + 5.5 * u;
+      ctx.fillStyle = COLORS.boost;
+      this.roundRect(bx, by, 24 * u, 12 * u, 3 * u);
+      ctx.fill();
+      this.text('×2', bx + 12 * u, by + 10 * u, `${9 * u}px ${FONT_DISPLAY}`, '#04121c', 'center');
+    }
+    this.text(fmt(this.displayScore), tx, y + 41 * u, `${(compact ? 22 : 26) * u}px ${FONT_DISPLAY}`, boosting ? COLORS.boost : '#ffffff');
+    if (hasBest) {
+      const beating = this.score > this.best;
+      this.text(
+        beating ? '★ NEW BEST' : `BEST ${fmt(this.best)}`,
+        tx,
+        y + 57 * u,
+        `700 ${9.5 * u}px ${FONT_UI}`,
+        beating ? COLORS.gold : 'rgba(255,255,255,0.5)',
+      );
+    }
+
+    if (this.combo > 1) {
+      const cy = y + h + 26 * u;
+      const pulse = 1 + 0.08 * Math.sin(performance.now() / 90);
+      const label = `×${this.combo}`;
+      ctx.save();
+      ctx.translate(tx, cy);
+      ctx.scale(pulse, pulse);
+      this.text(label, 0, 0, `${22 * u}px ${FONT_DISPLAY}`, COLORS.gold);
+      const cw = ctx.measureText(label).width;
+      this.text('COMBO', cw + 6 * u, 0, `700 ${11 * u}px ${FONT_UI}`, '#ffffff');
+      ctx.restore();
+      // combo window
+      const bw = 92 * u;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(tx, cy + 7 * u, bw, 4 * u);
+      ctx.fillStyle = COLORS.gold;
+      ctx.fillRect(tx, cy + 7 * u, bw * clamp(this.comboTimer / COMBO_WINDOW, 0, 1), 4 * u);
+    }
+  }
+
+  // ---- clock + sector progress (top-centre)
+  private drawTimer(compact: boolean) {
+    const ctx = this.ctx;
+    const u = this.ui;
+    const W = this.W;
+    const y = this.hudTop();
+    const tw = (compact ? 104 : 132) * u;
+    const th = 56 * u;
+    const x = W / 2 - tw / 2;
+    const low = this.timeLeft < 10 && this.phase === 'racing';
+
+    ctx.fillStyle = low ? 'rgba(120,0,0,0.74)' : 'rgba(8,8,14,0.66)';
+    this.panel(x, y, tw, th, 12 * u);
+    this.text('TIME', W / 2, y + 15 * u, `700 ${10 * u}px ${FONT_UI}`, low ? 'rgba(255,205,205,0.9)' : 'rgba(255,255,255,0.6)', 'center');
+    const t = Math.max(0, this.timeLeft);
+    const s = low ? 1 + this.lowTimePulse * 0.25 : 1;
+    ctx.save();
+    ctx.translate(W / 2, y + 45 * u);
+    ctx.scale(s, s);
+    this.text(t < 10 ? t.toFixed(1) : Math.ceil(t).toString(), 0, 0, `${(compact ? 28 : 32) * u}px ${FONT_DISPLAY}`, low ? '#ff5252' : '#ffffff', 'center');
+    ctx.restore();
+
+    // progress to the next gate, tucked under the clock
+    const segToGo = Math.max(0, this.nextCheckpoint - this.distance);
+    const prog = clamp(1 - segToGo / CHECKPOINT_SEGMENTS, 0, 1);
+    const px = x + 2 * u;
+    const pw = tw - 10 * u;
+    const py = y + th + 5 * u;
+    const ph = 4 * u;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    this.panel(px, py, pw, ph, 3 * u);
+    if (prog > 0) {
+      ctx.fillStyle = '#4ade80';
+      this.panel(px, py, Math.max(3 * u, pw * prog), ph, 3 * u);
+    }
+    this.text(
+      `SECTOR ${this.checkpoints + 1}  ·  ${((segToGo * METERS_PER_SEGMENT) / 1000).toFixed(2)} KM`,
+      W / 2,
+      py + ph + 13 * u,
+      `700 ${9.5 * u}px ${FONT_UI}`,
+      'rgba(255,255,255,0.62)',
+      'center',
+    );
+  }
+
+  // ---- dash: shift lights, speed, gear, boost meter (right, under the DOM pause button)
+  private drawDash(compact: boolean) {
+    const ctx = this.ctx;
+    const u = this.ui;
+    const boosting = this.boostTime > 0;
+    const dw = (compact ? 128 : 156) * u;
+    const dh = 84 * u;
+    const x = this.W - Math.max(12 * u, this.safe.right + 4) - dw;
+    // the pause button in App.tsx is 44px tall at top: max(12px, safe-area-inset-top)
+    const y = Math.max(12, this.safe.top) + 44 + 8;
+    ctx.fillStyle = 'rgba(8,8,14,0.66)';
+    this.panel(x, y, dw + 4 * u, dh, 12 * u);
+
+    // shift lights track revs within the current gear
+    const speedPct = this.speed / this.maxSpeed;
+    const gearF = clamp(speedPct, 0, 0.9999) * 8;
+    const gear = this.speed < 1 ? 0 : Math.floor(gearF) + 1;
+    const rpm = gearF - Math.floor(gearF);
+    const leds = 12;
+    // full strip at the limiter (where the car spends most of a run) rather than a distracting blink
+    const lit = this.speed < 1 ? 0 : boosting || speedPct > 0.97 ? leds : Math.round(rpm * leds);
+    const lx0 = x + 22 * u;
+    const step = (dw - 34 * u) / (leds - 1);
+    const ly = y + 12 * u;
+    const lr = (compact ? 3 : 3.4) * u;
+    for (let i = 0; i < leds; i++) {
+      const on = i < lit;
+      const col = boosting ? COLORS.boost : i < 4 ? '#22c55e' : i < 8 ? '#ef4444' : '#a78bfa';
+      const cx = lx0 + i * step;
+      if (on) {
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(cx, ly, lr * 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = on ? col : 'rgba(255,255,255,0.1)';
+      ctx.beginPath();
+      ctx.arc(cx, ly, lr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // speed readout + gear box
+    const kmh = Math.round((this.speed / MAX_SPEED) * TOP_KMH);
+    const jitter = this.speed > this.maxSpeed * 0.97 ? (Math.random() - 0.5) * 1.5 : 0;
+    const gx = x + dw - 36 * u;
+    this.text(kmh.toString(), gx - 6 * u, y + 52 * u + jitter, `${(compact ? 28 : 32) * u}px ${FONT_DISPLAY}`, boosting ? '#fb923c' : '#ffffff', 'right');
+    this.text('KM/H', gx, y + 31 * u, `700 ${8.5 * u}px ${FONT_UI}`, 'rgba(255,255,255,0.55)');
+    ctx.strokeStyle = 'rgba(255,212,0,0.5)';
+    ctx.lineWidth = Math.max(1, u);
+    this.roundRect(gx, y + 36 * u, 22 * u, 18 * u, 4 * u);
+    ctx.stroke();
+    this.text(gear === 0 ? 'N' : gear.toString(), gx + 11 * u, y + 50.5 * u, `${14 * u}px ${FONT_DISPLAY}`, COLORS.gold, 'center');
+
+    // boost meter: ten cells that fill, glow when ready and drain while burning
+    const fill = boosting ? this.boostTime / BOOST_DURATION : this.boostMeter;
+    const ready = !boosting && this.boostMeter >= 1;
+    const cells = 10;
+    const bx0 = x + 14 * u;
+    const gap = 2 * u;
+    const cw = (dw - 22 * u - gap * (cells - 1)) / cells;
+    const by = y + 61 * u;
+    const bh = 7 * u;
+    const alpha = ready ? 0.7 + 0.3 * Math.sin(performance.now() / 110) : 1;
+    for (let i = 0; i < cells; i++) {
+      const f = clamp(fill * cells - i, 0, 1);
+      const cx = bx0 + i * (cw + gap);
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      this.panel(cx, by, cw, bh, 2 * u);
+      if (f > 0) {
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = boosting ? '#fb923c' : ready ? '#7dd3fc' : COLORS.boost;
+        this.panel(cx, by, Math.max(2 * u, cw * f), bh, 2 * u);
+        ctx.globalAlpha = 1;
+      }
+    }
+    const status = boosting ? 'BOOSTING  ·  ×2 SCORE' : ready ? `BOOST READY  ·  ${this.touchMode ? 'TAP' : 'SPACE'}` : `BOOST ${Math.floor(fill * 100)}%`;
+    this.text(status, bx0, by + bh + 11 * u, `700 ${8.5 * u}px ${FONT_UI}`, ready ? '#e0f2fe' : boosting ? '#fed7aa' : 'rgba(255,255,255,0.6)');
+  }
+
+  private drawOffTrack() {
+    if (!this.offRoad || this.phase !== 'racing') return;
+    const ctx = this.ctx;
+    const u = this.ui;
+    const label = 'OFF TRACK';
+    const font = `${15 * u}px ${FONT_DISPLAY}`;
+    ctx.font = font;
+    const icon = 16 * u;
+    const h = 32 * u;
+    const w = ctx.measureText(label).width + icon + 38 * u;
+    const x = this.W / 2 - w / 2;
+    const y = this.H * 0.6 - h / 2;
+    ctx.save();
+    ctx.globalAlpha = 0.72 + 0.28 * Math.sin(performance.now() / 90);
+    ctx.fillStyle = 'rgba(14,11,0,0.74)';
+    this.roundRect(x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.strokeStyle = COLORS.gold;
+    ctx.lineWidth = 1.5 * u;
+    ctx.stroke();
+    // warning triangle
+    const ix = x + 14 * u;
+    const iy = y + h / 2;
+    ctx.fillStyle = COLORS.gold;
+    ctx.beginPath();
+    ctx.moveTo(ix + icon / 2, iy - icon * 0.46);
+    ctx.lineTo(ix + icon, iy + icon * 0.42);
+    ctx.lineTo(ix, iy + icon * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    this.text('!', ix + icon / 2, iy + icon * 0.34, `${10 * u}px ${FONT_DISPLAY}`, '#141000', 'center');
+    this.text(label, ix + icon + 9 * u, iy + 5.5 * u, font, COLORS.gold);
+    ctx.restore();
+  }
+
+  /** Free-standing start-light board, placed below the HUD so nothing crosses the clock. */
   private drawLights() {
     const ctx = this.ctx;
     const u = this.ui;
     const W = this.W;
     const fade = this.phase === 'countdown' ? 1 : clamp(this.goTimer / 0.5, 0, 1);
-    const cols = 5;
-    const r = 11 * u;
-    const gap = 30 * u;
-    const gw = cols * gap + 16 * u;
-    const gh = 66 * u;
-    const gx = W / 2 - gw / 2;
-    const gy = this.H * 0.2;
+    const pods = 5;
+    const podW = 26 * u;
+    const podH = 54 * u;
+    const gap = 7 * u;
+    const inner = 9 * u;
+    const bw = pods * podW + (pods - 1) * gap + inner * 2;
+    const bh = podH + inner * 2;
+    const bx = W / 2 - bw / 2;
+    const by = Math.max(this.H * 0.2, this.hudTop() + 96 * u);
+    const r = 9 * u;
+    const lamp = (c: number, row: number) => ({ x: bx + inner + c * (podW + gap) + podW / 2, y: by + inner + podH * (row ? 0.72 : 0.28) });
+
     ctx.save();
     ctx.globalAlpha = fade;
-    ctx.fillStyle = '#0c0c12';
-    ctx.fillRect(gx, gy, gw, gh);
-    ctx.fillStyle = '#26262f';
-    ctx.fillRect(gx, gy, gw, 4 * u);
-    // gantry arm
-    ctx.fillStyle = '#26262f';
-    ctx.fillRect(W / 2 - 3 * u, 0, 6 * u, gy);
-    for (let c = 0; c < cols; c++) {
-      for (let rI = 0; rI < 2; rI++) {
-        const cx = gx + 8 * u + gap * c + gap / 2;
-        const cy = gy + 18 * u + rI * 30 * u;
-        const on = c < this.lightsLit && this.phase === 'countdown';
-        ctx.fillStyle = on ? '#ff1e1e' : '#2a0c0c';
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    this.roundRect(bx + 3 * u, by + 6 * u, bw, bh, 12 * u);
+    ctx.fill();
+    ctx.fillStyle = '#0b0b11';
+    this.roundRect(bx, by, bw, bh, 12 * u);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = Math.max(1, u);
+    ctx.stroke();
+    ctx.fillStyle = '#17171f';
+    for (let c = 0; c < pods; c++) {
+      this.roundRect(bx + inner + c * (podW + gap), by + inner, podW, podH, 7 * u);
+      ctx.fill();
+    }
+    // glows first so no housing paints over a neighbour's halo
+    for (let c = 0; c < pods; c++) {
+      if (!(c < this.lightsLit && this.phase === 'countdown')) continue;
+      for (let row = 0; row < 2; row++) {
+        const p = lamp(c, row);
+        const g = ctx.createRadialGradient(p.x, p.y, r * 0.3, p.x, p.y, r * 2.6);
+        g.addColorStop(0, 'rgba(255,40,40,0.7)');
+        g.addColorStop(1, 'rgba(255,40,40,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(p.x - r * 2.6, p.y - r * 2.6, r * 5.2, r * 5.2);
+      }
+    }
+    for (let c = 0; c < pods; c++) {
+      const on = c < this.lightsLit && this.phase === 'countdown';
+      for (let row = 0; row < 2; row++) {
+        const p = lamp(c, row);
+        ctx.fillStyle = on ? '#ff2222' : '#2a0d0f';
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ctx.fill();
-        if (on) {
-          const g = ctx.createRadialGradient(cx, cy, r * 0.4, cx, cy, r * 2.4);
-          g.addColorStop(0, 'rgba(255,60,60,0.7)');
-          g.addColorStop(1, 'rgba(255,60,60,0)');
-          ctx.fillStyle = g;
-          ctx.fillRect(cx - r * 2.4, cy - r * 2.4, r * 4.8, r * 4.8);
-        }
+        ctx.fillStyle = on ? 'rgba(255,205,195,0.85)' : 'rgba(255,255,255,0.06)';
+        ctx.beginPath();
+        ctx.arc(p.x - r * 0.3, p.y - r * 0.35, r * 0.32, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
     ctx.restore();
 
     if (this.phase === 'countdown') {
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.font = `700 ${12 * u}px ${FONT_UI}`;
-      ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      ctx.fillText(this.lightsLit >= 5 ? 'WAIT FOR IT…' : 'GET READY', W / 2, gy + gh + 20 * u);
-      ctx.restore();
+      this.text(this.lightsLit >= 5 ? 'WAIT FOR IT…' : 'GET READY', W / 2, by + bh + 24 * u, `700 ${13 * u}px ${FONT_UI}`, 'rgba(255,255,255,0.8)', 'center');
     }
   }
 

@@ -19,6 +19,7 @@ type Side = 'left' | 'right';
 export default function GameCanvas({ input, audio, steerEnabled, onReady, onGameOver, onPhase, onMute, onTouchDetected }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const safeRef = useRef<HTMLDivElement>(null);
   const cbRef = useRef({ onGameOver, onPhase, onMute, onReady, onTouchDetected });
   cbRef.current = { onGameOver, onPhase, onMute, onReady, onTouchDetected };
   const pointers = useRef(new Map<number, Side>());
@@ -44,6 +45,13 @@ export default function GameCanvas({ input, audio, steerEnabled, onReady, onGame
       // cap the backing store so low-end phones keep 60fps
       const budget = 2_400_000;
       if (w * h * dpr * dpr > budget) dpr = Math.max(1, Math.sqrt(budget / (w * h)));
+      // notch / home-indicator insets, resolved by the probe's env() padding
+      const probe = safeRef.current;
+      if (probe) {
+        const cs = getComputedStyle(probe);
+        const px = (v: string) => parseFloat(v) || 0;
+        game.setSafeArea(px(cs.paddingTop), px(cs.paddingRight), px(cs.paddingBottom), px(cs.paddingLeft));
+      }
       game.resize(w, h, dpr);
     };
     doResize();
@@ -110,6 +118,11 @@ export default function GameCanvas({ input, audio, steerEnabled, onReady, onGame
       onContextMenu={(e) => e.preventDefault()}
     >
       <canvas ref={canvasRef} className="h-full w-full" />
+      <div
+        ref={safeRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute inset-0 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]"
+      />
     </div>
   );
 }

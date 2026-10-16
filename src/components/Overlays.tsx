@@ -1,18 +1,22 @@
-import { useEffect, useState } from 'react';
-import type { RunStats } from '@/game/engine';
-import type { Driver } from '@/game/drivers';
+import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react';
+import type { HudSnapshot, RunStats } from '@/game/engine';
+import { driverColor, type Driver } from '@/game/drivers';
 import type { ScoreEntry } from '@/game/highscores';
 import HighScoreTable from './HighScoreTable';
 import CarPreview from './CarPreview';
-import { driverColor } from './StartScreen';
+import { Icon, Kbd, RaceButton, SoundButton, fmt } from './ui';
 import { cn } from '@/utils/cn';
 
-const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
-
-function Backdrop({ children, className }: { children: React.ReactNode; className?: string }) {
+function Backdrop({ children, className, labelledBy }: { children: ReactNode; className?: string; labelledBy: string }) {
   return (
     <div
-      className={cn('absolute inset-0 z-40 flex items-center justify-center overflow-y-auto bg-night/70 p-4 animate-fade-in', className)}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={labelledBy}
+      className={cn(
+        'absolute inset-0 z-40 flex items-center justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_center,rgba(7,6,31,0.55),rgba(7,6,31,0.92))] p-4 animate-fade-in',
+        className,
+      )}
       style={{ touchAction: 'pan-y' }}
     >
       {children}
@@ -20,30 +24,11 @@ function Backdrop({ children, className }: { children: React.ReactNode; classNam
   );
 }
 
-function PrimaryButton({ onClick, children, className }: { onClick: () => void; children: React.ReactNode; className?: string }) {
+function DriverLine({ driver }: { driver: Driver }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn('btn-race bg-f1red px-8 py-3 font-display text-base tracking-[0.18em] text-white hover:brightness-110 sm:text-lg', className)}
-    >
-      {children}
-    </button>
-  );
-}
-
-function GhostButton({ onClick, children, className }: { onClick: () => void; children: React.ReactNode; className?: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'btn-race border border-white/25 bg-white/5 px-6 py-3 font-display text-sm tracking-[0.18em] text-white/85 hover:bg-white/15',
-        className,
-      )}
-    >
-      {children}
-    </button>
+    <div className="mt-2 truncate text-xs text-white/55">
+      #{driver.number} {driver.name} · <span className="text-team-soft">{driver.team}</span>
+    </div>
   );
 }
 
@@ -56,22 +41,77 @@ interface PauseProps {
   muted: boolean;
   onToggleMute: () => void;
   isTouch: boolean;
+  driver: Driver;
+  run: HudSnapshot | null;
 }
 
-export function PauseOverlay({ onResume, onRestart, onQuit, muted, onToggleMute, isTouch }: PauseProps) {
+function RunStat({ label, value, className }: { label: string; value: string; className?: string }) {
   return (
-    <Backdrop>
-      <div className="carbon w-full max-w-sm animate-pop rounded-2xl border border-white/10 p-6 text-center shadow-2xl">
-        <div className="stripes-red mx-auto mb-4 h-1.5 w-24 skew-x-[-16deg]" />
-        <h2 className="font-display text-4xl italic tracking-tight">PAUSED</h2>
-        <p className="mt-1 text-xs uppercase tracking-[0.3em] text-white/50">Race suspended · Red flag</p>
-        <div className="mt-6 flex flex-col gap-3">
-          <PrimaryButton onClick={onResume}>RESUME {isTouch ? '' : '(P)'}</PrimaryButton>
-          <GhostButton onClick={onRestart}>RESTART {isTouch ? '' : '(R)'}</GhostButton>
-          <GhostButton onClick={onQuit}>QUIT TO PIT LANE</GhostButton>
-          <button type="button" onClick={onToggleMute} className="mt-1 text-xs font-bold tracking-widest text-white/60 hover:text-white">
-            {muted ? '🔇 SOUND OFF' : '🔊 SOUND ON'}
-          </button>
+    <div className="bg-carbon/95 px-3 py-2.5 text-center">
+      <dt className="text-[9px] font-bold uppercase tracking-[0.22em] text-white/45">{label}</dt>
+      <dd className={cn('mt-0.5 font-display text-lg tabular-nums text-white', className)}>{value}</dd>
+    </div>
+  );
+}
+
+export function PauseOverlay({ onResume, onRestart, onQuit, muted, onToggleMute, isTouch, driver, run }: PauseProps) {
+  const titleId = useId();
+  return (
+    <Backdrop labelledBy={titleId}>
+      <div className="glass w-full max-w-md animate-pop overflow-hidden rounded-3xl" style={{ '--team': driverColor(driver) } as CSSProperties}>
+        <div className="stripes-red h-1.5" />
+        <div className="p-6 sm:p-7">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.35em] text-f1red">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-f1red" />
+                Red flag
+              </div>
+              <h2 id={titleId} className="mt-1 font-display text-4xl italic tracking-tight sm:text-5xl">
+                PAUSED
+              </h2>
+              <DriverLine driver={driver} />
+            </div>
+            <SoundButton muted={muted} onToggle={onToggleMute} />
+          </div>
+
+          {run && (
+            <dl className="mt-5 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10">
+              <RunStat label="Score" value={fmt(run.score)} />
+              <RunStat label="Time left" value={`${run.timeLeft.toFixed(1)}s`} className={run.timeLeft < 10 ? 'text-red-400' : undefined} />
+              <RunStat label="Sector" value={String(run.sector)} />
+            </dl>
+          )}
+
+          <div className="mt-6 flex flex-col gap-3">
+            <RaceButton icon={<Icon.Play />} hint={!isTouch && <Kbd>P</Kbd>} onClick={onResume} className="w-full py-3.5">
+              Resume
+            </RaceButton>
+            <RaceButton variant="ghost" icon={<Icon.Restart />} hint={!isTouch && <Kbd>R</Kbd>} onClick={onRestart} className="w-full">
+              Restart
+            </RaceButton>
+            <RaceButton variant="ghost" icon={<Icon.Exit />} onClick={onQuit} className="w-full">
+              Quit to pit lane
+            </RaceButton>
+          </div>
+
+          {!isTouch && (
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-white/10 pt-4 text-[11px] text-white/45">
+              <span className="flex items-center gap-1">
+                <Kbd>←</Kbd>
+                <Kbd>→</Kbd> steer
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>↓</Kbd> brake
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>Space</Kbd> boost
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>M</Kbd> mute
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </Backdrop>
@@ -84,6 +124,8 @@ interface GameOverProps {
   stats: RunStats;
   driver: Driver;
   rank: number;
+  /** Best score on the board before this run (0 if the board was empty). */
+  prevBest: number;
   scores: ScoreEntry[];
   newEntryId?: string;
   onRestart: () => void;
@@ -108,68 +150,96 @@ function useCountUp(target: number, duration = 1300) {
   return v;
 }
 
-export function GameOverOverlay({ stats, driver, rank, scores, newEntryId, onRestart, onMenu, isTouch }: GameOverProps) {
-  const shown = useCountUp(stats.score);
-  const color = driverColor(driver);
-  const headline = rank === 1 ? 'NEW TRACK RECORD!' : rank > 0 ? `P${rank} ON THE BOARD` : 'CHEQUERED FLAG';
-  const items: [string, string][] = [
-    ['DISTANCE', `${stats.distanceKm.toFixed(2)} km`],
-    ['OVERTAKES', `${stats.overtakes}`],
-    ['CLOSE CALLS', `${stats.nearMisses}`],
-    ['MAX COMBO', `×${stats.maxCombo}`],
-    ['TOP SPEED', `${stats.topKmh} km/h`],
-    ['SECTORS', `${stats.checkpoints}`],
-  ];
+function BestDelta({ score, prevBest }: { score: number; prevBest: number }) {
+  const diff = score - prevBest;
+  if (prevBest <= 0) return <p className="mt-2 text-sm text-white/60">First score on the board — now go and beat it.</p>;
+  if (diff > 0)
+    return (
+      <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-emerald-400">
+        <span aria-hidden>▲</span> {fmt(diff)} over the previous record
+      </p>
+    );
+  if (diff === 0) return <p className="mt-2 text-sm font-semibold text-gold">Matched the track record!</p>;
   return (
-    <Backdrop className="items-start">
-      <div className="carbon my-auto w-full max-w-2xl animate-slide-up rounded-2xl border border-white/10 shadow-2xl">
-        {/* header */}
-        <div className="relative overflow-hidden rounded-t-2xl border-b border-white/10 px-5 pb-4 pt-5 sm:px-7">
-          <div className="checkered absolute inset-x-0 top-0 h-1.5 opacity-80" />
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.35em] text-f1red">TIME'S UP</div>
-              <h2 className={cn('font-display text-3xl italic leading-none tracking-tight sm:text-4xl', rank === 1 ? 'text-gold text-glow-gold' : 'text-white')}>
+    <p className="mt-2 text-sm text-white/55">
+      <span className="font-semibold text-white/85">{fmt(-diff)}</span> short of the record ({fmt(prevBest)})
+    </p>
+  );
+}
+
+export function GameOverOverlay({ stats, driver, rank, prevBest, scores, newEntryId, onRestart, onMenu, isTouch }: GameOverProps) {
+  const titleId = useId();
+  const shown = useCountUp(stats.score);
+  const record = rank === 1;
+  const headline = record ? 'NEW TRACK RECORD!' : rank > 0 ? `P${rank} ON THE BOARD` : 'CHEQUERED FLAG';
+  const items: { label: string; value: string; icon: ReactNode }[] = [
+    { label: 'Distance', value: `${stats.distanceKm.toFixed(2)} km`, icon: <Icon.Road /> },
+    { label: 'Overtakes', value: `${stats.overtakes}`, icon: <Icon.Overtake /> },
+    { label: 'Close calls', value: `${stats.nearMisses}`, icon: <Icon.Spark /> },
+    { label: 'Max combo', value: stats.maxCombo > 0 ? `×${stats.maxCombo}` : '—', icon: <Icon.Combo /> },
+    { label: 'Top speed', value: `${stats.topKmh} km/h`, icon: <Icon.Gauge /> },
+    { label: 'Sectors', value: `${stats.checkpoints}`, icon: <Icon.Gate /> },
+  ];
+
+  return (
+    <Backdrop className="items-start" labelledBy={titleId}>
+      <div className="glass my-auto w-full max-w-3xl animate-slide-up overflow-hidden rounded-3xl" style={{ '--team': driverColor(driver) } as CSSProperties}>
+        <div className="checkered-sm h-2.5 opacity-80" />
+
+        <div className="relative isolate overflow-hidden px-5 pb-5 pt-5 sm:px-8 sm:pt-7">
+          <div aria-hidden className="absolute -right-24 -top-28 -z-10 h-80 w-80 rounded-full bg-team/20 blur-3xl" />
+          <div className="grid items-end gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.35em] text-f1red">
+                <Icon.Flag className="text-sm" />
+                Time's up
+              </div>
+              <h2
+                id={titleId}
+                className={cn('mt-1.5 font-display text-3xl italic leading-[0.95] tracking-tight sm:text-5xl', record ? 'text-gold text-glow-gold' : 'text-white')}
+              >
                 {headline}
               </h2>
-              <div className="mt-1 text-xs text-white/60">
-                {driver.name} · <span style={{ color }}>{driver.team}</span>
+              <DriverLine driver={driver} />
+
+              <div className="mt-5 text-[10px] font-bold uppercase tracking-[0.3em] text-white/45">Final score</div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="font-display text-6xl leading-none tabular-nums sm:text-7xl">{fmt(shown)}</div>
+                {rank > 1 && <span className="animate-pop rounded-md bg-white/90 px-2 py-1 font-display text-xs text-black [animation-delay:900ms]">P{rank}</span>}
               </div>
+              <BestDelta score={stats.score} prevBest={prevBest} />
             </div>
-            <CarPreview livery={driver.livery} className="hidden w-32 drop-shadow-[0_8px_10px_rgba(0,0,0,0.6)] sm:block" />
-          </div>
-          <div className="mt-4 flex items-end gap-3">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">Final score</div>
-              <div className="font-display text-5xl leading-none text-white sm:text-6xl">{fmt(shown)}</div>
+            <div className="relative hidden w-44 sm:block md:w-52">
+              <div className="stage-floor" />
+              <CarPreview livery={driver.livery} res={720} className="relative h-auto w-full drop-shadow-[0_10px_12px_rgba(0,0,0,0.6)]" />
             </div>
-            {rank > 0 && (
-              <span className="mb-1 animate-pop rounded-md bg-gold px-2 py-1 font-display text-xs text-black [animation-delay:900ms]">TOP {rank}</span>
-            )}
           </div>
         </div>
 
-        {/* stats */}
-        <div className="grid grid-cols-3 gap-px bg-white/10 sm:grid-cols-6">
-          {items.map(([k, v]) => (
-            <div key={k} className="bg-carbon/95 px-3 py-3 text-center">
-              <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/45">{k}</div>
-              <div className="font-display text-base text-white sm:text-lg">{v}</div>
+        <dl className="grid grid-cols-3 gap-px border-y border-white/10 bg-white/10 sm:grid-cols-6">
+          {items.map((it) => (
+            <div key={it.label} className="bg-carbon/95 px-2 py-3 text-center">
+              <dt className="flex flex-col items-center gap-1 text-[9px] font-bold uppercase tracking-[0.2em] text-white/45">
+                <span className="text-base text-white/30">{it.icon}</span>
+                {it.label}
+              </dt>
+              <dd className="mt-0.5 font-display text-base tabular-nums text-white sm:text-lg">{it.value}</dd>
             </div>
           ))}
+        </dl>
+
+        <div className="flex flex-col items-stretch gap-3 px-5 py-5 sm:flex-row sm:justify-center sm:px-8">
+          <div className="cta-glow sm:min-w-[270px]">
+            <RaceButton icon={<Icon.Restart />} hint={!isTouch && <Kbd>Enter</Kbd>} onClick={onRestart} className="w-full py-3.5">
+              Race again
+            </RaceButton>
+          </div>
+          <RaceButton variant="ghost" icon={<Icon.Exit />} hint={!isTouch && <Kbd>Esc</Kbd>} onClick={onMenu}>
+            Change driver
+          </RaceButton>
         </div>
 
-        {/* actions */}
-        <div className="flex flex-col items-center gap-3 px-5 py-5 sm:flex-row sm:justify-center sm:px-7">
-          <PrimaryButton onClick={onRestart} className="animate-pulse-glow w-full sm:w-auto">
-            RACE AGAIN {isTouch ? '' : '(ENTER)'}
-          </PrimaryButton>
-          <GhostButton onClick={onMenu} className="w-full sm:w-auto">
-            CHANGE DRIVER
-          </GhostButton>
-        </div>
-
-        <div className="px-5 pb-5 sm:px-7">
+        <div className="px-5 pb-6 sm:px-8">
           <HighScoreTable scores={scores} highlightId={newEntryId} limit={5} />
         </div>
       </div>

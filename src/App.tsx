@@ -3,11 +3,12 @@ import GameCanvas from './components/GameCanvas';
 import StartScreen from './components/StartScreen';
 import TouchControls from './components/TouchControls';
 import { GameOverOverlay, PauseOverlay } from './components/Overlays';
+import { Icon } from './components/ui';
 import type { Game, Phase, RunStats } from './game/engine';
 import { Input } from './game/input';
 import { AudioEngine } from './game/audio';
 import { DRIVERS, type Driver } from './game/drivers';
-import { bestScore, loadScores, saveScore, type ScoreEntry } from './game/highscores';
+import { bestScore, clearScores, loadScores, saveScore, type ScoreEntry } from './game/highscores';
 import { STORAGE_KEY_DRIVER } from './game/constants';
 
 type Screen = 'menu' | 'playing' | 'paused' | 'gameover';
@@ -36,6 +37,7 @@ export default function App() {
   driverRef.current = driver;
   const [stats, setStats] = useState<RunStats | null>(null);
   const [rank, setRank] = useState(0);
+  const [prevBest, setPrevBest] = useState(0);
   const [newEntryId, setNewEntryId] = useState<string | undefined>(undefined);
   const [scores, setScores] = useState<ScoreEntry[]>(() => loadScores());
   const [muted, setMuted] = useState(audio.muted);
@@ -46,6 +48,7 @@ export default function App() {
 
   const onGameOver = useCallback((s: RunStats) => {
     const d = DRIVERS.find((x) => x.id === s.driverId) ?? DRIVERS[0];
+    const before = bestScore();
     const result = saveScore({
       driverId: d.id,
       driver: d.name,
@@ -57,6 +60,7 @@ export default function App() {
     });
     setStats(s);
     setRank(result.rank);
+    setPrevBest(before);
     setScores(result.scores);
     setNewEntryId(result.rank > 0 ? result.scores[result.rank - 1]?.id : undefined);
     if (gameRef.current) gameRef.current.best = result.scores[0]?.score ?? 0;
@@ -100,6 +104,16 @@ export default function App() {
     gameRef.current?.startAttract();
   }, [audio]);
 
+  const clearBoard = useCallback(() => {
+    clearScores();
+    setScores([]);
+    if (gameRef.current) gameRef.current.best = 0;
+    audio.playClick();
+  }, [audio]);
+
+  // the run as it stood when the pause landed (the engine is frozen while paused)
+  const pausedRun = useMemo(() => (screen === 'paused' && game ? game.snapshot() : null), [screen, game]);
+
   // auto-pause when the tab is hidden
   useEffect(() => {
     const onVis = () => {
@@ -121,23 +135,26 @@ export default function App() {
         onGameOver={onGameOver}
         onPhase={onPhase}
         onMute={setMuted}
+        onTouchDetected={onTouchDetected}
       />
 
       {screen === 'playing' && game && (
         <>
+          {/* the engine's dash panel is laid out just below this button — keep the size / offsets in sync */}
           <button
             type="button"
             aria-label="Pause"
+            title={isTouch ? 'Pause' : 'Pause (P)'}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               audio.playClick();
               game.pause();
             }}
-            className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/25 bg-black/50 font-display text-base text-white/90 hover:bg-white/15"
+            className="absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-20 flex h-11 w-11 items-center justify-center rounded-xl border border-white/20 bg-black/45 text-lg text-white/90 transition hover:border-white/40 hover:bg-white/15"
           >
-            ❚❚
+            <Icon.Pause />
           </button>
-          {isTouch && <TouchControls input={input} />}
+          {isTouch && <TouchControls input={input} game={game} />}
         </>
       )}
 
@@ -147,6 +164,7 @@ export default function App() {
           onSelect={selectDriver}
           onStart={startRace}
           scores={scores}
+          onClearScores={clearBoard}
           muted={muted}
           onToggleMute={toggleMute}
           isTouch={isTouch}
@@ -167,6 +185,8 @@ export default function App() {
           muted={muted}
           onToggleMute={toggleMute}
           isTouch={isTouch}
+          driver={driver}
+          run={pausedRun}
         />
       )}
 
@@ -175,6 +195,7 @@ export default function App() {
           stats={stats}
           driver={DRIVERS.find((d) => d.id === stats.driverId) ?? driver}
           rank={rank}
+          prevBest={prevBest}
           scores={scores}
           newEntryId={newEntryId}
           onRestart={() => {

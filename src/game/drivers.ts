@@ -103,6 +103,32 @@ export const TRAFFIC_LIVERIES: Livery[] = [
   { primary: '#a3e635', secondary: '#111111', accent: '#ffffff', helmet: '#111111' },
 ];
 
+const chroma = (hex: string) => {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return Math.max(r, g, b) - Math.min(r, g, b);
+};
+
+/** The livery colour that identifies a team on dark UI (skips near-black / near-white primaries). */
+export function driverColor(d: Driver): string {
+  const l = d.livery;
+  if (chroma(l.primary) >= 100) return l.primary;
+  return [l.secondary, l.accent, l.helmet].reduce((best, c) => (chroma(c) > chroma(best) ? c : best), l.primary);
+}
+
+/** Black or white — whichever reads better on top of the given colour. */
+export function inkOn(hex: string): string {
+  const n = parseInt(hex.replace('#', ''), 16);
+  const lin = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return lum > 0.179 ? '#000000' : '#ffffff';
+}
+
 export interface DriverPhysics {
   maxSpeedMult: number;
   accelMult: number;

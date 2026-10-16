@@ -12,10 +12,27 @@
   --animate-fade-in: fadeIn 0.35s ease both;
   --animate-slide-up: slideUp 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
   --animate-pop: pop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.35) both;
-  --animate-pulse-glow: pulseGlow 1.5s ease-in-out infinite;
-  --animate-shimmer: shimmer 2.2s linear infinite;
-  --animate-flicker: flicker 1.2s steps(2, end) infinite;
-  --animate-marquee: marquee 18s linear infinite;
+  --animate-car-in: carIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+  --animate-float: float 3.2s ease-in-out infinite;
+}
+
+/* Phones in either orientation (narrow, or short like landscape) vs. everything with room to spare.
+   The menu keeps its launch button pinned to the bottom edge on `compact` screens. */
+@custom-variant compact {
+  @media (max-width: 639px), (max-height: 540px) {
+    @slot;
+  }
+}
+@custom-variant roomy {
+  @media (min-width: 640px) and (min-height: 541px) {
+    @slot;
+  }
+}
+
+/* The selected driver's livery colour, set as --team on a container at runtime. */
+@theme inline {
+  --color-team: var(--team, #e10600);
+  --color-team-soft: color-mix(in oklab, var(--team, #e10600) 62%, white);
 }
 
 @keyframes fadeIn {
@@ -31,108 +48,184 @@
   70% { opacity: 1; transform: scale(1.06); }
   100% { opacity: 1; transform: scale(1); }
 }
-@keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(225, 6, 0, 0.55), 0 10px 30px rgba(225, 6, 0, 0.35); }
-  50% { box-shadow: 0 0 0 10px rgba(225, 6, 0, 0), 0 10px 40px rgba(225, 6, 0, 0.55); }
+@keyframes carIn {
+  from { opacity: 0; transform: translateX(28px) scale(0.94); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
-@keyframes shimmer {
-  from { background-position: -200% 0; }
-  to { background-position: 200% 0; }
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
-@keyframes flicker {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+@keyframes ctaGlow {
+  0%, 100% { filter: drop-shadow(0 6px 12px rgba(225, 6, 0, 0.35)); }
+  50% { filter: drop-shadow(0 6px 26px rgba(225, 6, 0, 0.8)); }
 }
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+@keyframes sweep {
+  0%, 55% { transform: translateX(-120%); }
+  85%, 100% { transform: translateX(120%); }
 }
-
-html,
-body,
-#root {
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-  background: var(--color-night);
+@keyframes ringPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55), 0 0 22px rgba(56, 189, 248, 0.45); }
+  50% { box-shadow: 0 0 0 10px rgba(56, 189, 248, 0), 0 0 34px rgba(56, 189, 248, 0.75); }
 }
 
-body {
-  font-family: var(--font-ui);
-  color: #fff;
-  -webkit-tap-highlight-color: transparent;
-  -webkit-touch-callout: none;
-  user-select: none;
-  overscroll-behavior: none;
-  touch-action: none;
+/* Layered so Tailwind utilities (e.g. `hidden` on a canvas) can still override these. */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--color-night);
+  }
+
+  body {
+    font-family: var(--font-ui);
+    color: #fff;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    user-select: none;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  canvas {
+    display: block;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 3px;
+  }
 }
 
-canvas {
-  display: block;
+@layer components {
+  /* Dark card used for every menu panel (no backdrop blur: the game renders behind at 60fps). */
+  .glass {
+    background: linear-gradient(180deg, rgba(24, 21, 44, 0.84), rgba(9, 8, 20, 0.9));
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 24px 48px -24px rgba(0, 0, 0, 0.85);
+  }
+
+  .checkered-sm {
+    background-image: repeating-conic-gradient(#f3f3f3 0 25%, #101010 0 50%);
+    background-size: 10px 10px;
+  }
+
+  .stripes-red {
+    background-image: repeating-linear-gradient(135deg, #e10600 0 12px, #b20500 12px 24px);
+  }
+
+  /* Giant outlined race number behind the showroom car */
+  .text-outline {
+    color: transparent;
+    -webkit-text-stroke: 2px rgba(255, 255, 255, 0.1);
+  }
+
+  /* Showroom floor: a pool of team-coloured light under the car */
+  .stage-floor {
+    position: absolute;
+    left: -2%;
+    right: -2%;
+    bottom: -6%;
+    height: 42%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, color-mix(in oklab, var(--team, #e10600) 72%, transparent), transparent);
+    filter: blur(10px);
+    pointer-events: none;
+  }
+  .stage-floor::after {
+    content: "";
+    position: absolute;
+    inset: 24% 10%;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .btn-race {
+    position: relative;
+    clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+    transition: transform 0.12s ease, filter 0.12s ease, background-color 0.15s ease;
+  }
+  .btn-race:active {
+    transform: scale(0.96);
+    filter: brightness(1.15);
+  }
+  /* clip-path swallows outlines, so mark keyboard focus inside the shape */
+  .btn-race:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 3px var(--color-gold);
+  }
+
+  /* Light sweep across the primary button */
+  .btn-shine {
+    overflow: hidden;
+  }
+  .btn-shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.32) 50%, transparent 65%);
+    transform: translateX(-120%);
+    animation: sweep 3.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  /* Pulsing glow for clipped CTAs: filters on a wrapper are applied after the child's clip-path. */
+  .cta-glow {
+    animation: ctaGlow 1.8s ease-in-out infinite;
+  }
+
+  .touch-btn {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: transform 0.08s ease, background-color 0.08s ease;
+  }
+  .touch-btn:active,
+  .touch-btn[data-active="true"] {
+    transform: scale(0.92);
+  }
+
+  /* Boost touch button: --fill (0..1) drives a charge ring around it */
+  .boost-btn {
+    --fill: 0;
+    position: relative;
+  }
+  .boost-btn::before {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border-radius: 9999px;
+    background: conic-gradient(var(--color-boost) calc(var(--fill) * 1turn), rgba(255, 255, 255, 0.14) 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+    pointer-events: none;
+  }
+  .boost-btn[data-state="ready"] {
+    animation: ringPulse 0.9s ease-in-out infinite;
+  }
+  .boost-btn[data-state="boosting"]::before {
+    background: conic-gradient(#fb923c calc(var(--fill) * 1turn), rgba(255, 255, 255, 0.14) 0);
+  }
+
+  .text-glow-red {
+    text-shadow: 0 0 18px rgba(225, 6, 0, 0.7), 0 2px 0 rgba(0, 0, 0, 0.6);
+  }
+  .text-glow-gold {
+    text-shadow: 0 0 18px rgba(255, 212, 0, 0.6), 0 2px 0 rgba(0, 0, 0, 0.6);
+  }
 }
 
-.font-display {
-  font-family: var(--font-display);
-}
-
-.carbon {
-  background-color: #0d0d14;
-  background-image:
-    linear-gradient(27deg, #151520 5px, transparent 5px),
-    linear-gradient(207deg, #151520 5px, transparent 5px),
-    linear-gradient(27deg, #0f0f17 5px, transparent 5px),
-    linear-gradient(207deg, #0f0f17 5px, transparent 5px),
-    linear-gradient(90deg, #111119 10px, transparent 10px),
-    linear-gradient(#0c0c13 25%, #101018 25%, #101018 50%, transparent 50%, transparent 75%, #12121a 75%, #12121a);
-  background-size: 20px 20px;
-}
-
-.checkered {
-  background-image: repeating-conic-gradient(#f3f3f3 0 25%, #101010 0 50%);
-  background-size: 18px 18px;
-}
-
-.stripes-red {
-  background-image: repeating-linear-gradient(135deg, #e10600 0 12px, #b20500 12px 24px);
-}
-
-.skew-panel {
-  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
-}
-
-.btn-race {
-  position: relative;
-  clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
-  transition: transform 0.12s ease, filter 0.12s ease;
-}
-.btn-race:active {
-  transform: scale(0.96);
-  filter: brightness(1.15);
-}
-
-.touch-btn {
-  touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
-  transition: transform 0.08s ease, background-color 0.08s ease;
-}
-.touch-btn:active,
-.touch-btn[data-active="true"] {
-  transform: scale(0.92);
-}
-
-.scroll-thin::-webkit-scrollbar {
-  height: 6px;
-  width: 6px;
-}
-.scroll-thin::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 999px;
-}
-
-.text-glow-red {
-  text-shadow: 0 0 18px rgba(225, 6, 0, 0.7), 0 2px 0 rgba(0, 0, 0, 0.6);
-}
-.text-glow-gold {
-  text-shadow: 0 0 18px rgba(255, 212, 0, 0.6), 0 2px 0 rgba(0, 0, 0, 0.6);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
