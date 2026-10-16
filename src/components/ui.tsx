@@ -142,6 +142,52 @@ export const Icon = {
       <path d="M4 9h16" />
     </Svg>
   ),
+  Back: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M19 12H5M11 18l-6-6 6-6" />
+    </Svg>
+  ),
+  Lock: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="5" y="10.5" width="14" height="10" rx="2.2" />
+      <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    </Svg>
+  ),
+  Stopwatch: (p: IconProps) => (
+    <Svg {...p}>
+      <circle cx="12" cy="13.5" r="7.5" />
+      <path d="M12 13.5V10M9.5 2.5h5M18.5 6.5 17 8" />
+    </Svg>
+  ),
+  Helmet: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M3.5 16A8.5 8.5 0 0 1 20.5 13v3.5a2.5 2.5 0 0 1-2.5 2.5H6.5a3 3 0 0 1-3-3z" />
+      <path d="M11.5 12.5h9M11.5 12.5 10 16" />
+    </Svg>
+  ),
+  Users: (p: IconProps) => (
+    <Svg {...p}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.4A6.5 6.5 0 0 1 21.5 20" />
+    </Svg>
+  ),
+  Garage: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M3 20.5V9l9-5.5L21 9v11.5" />
+      <path d="M7 20.5V13h10v7.5M7 16.5h10" />
+    </Svg>
+  ),
+  Calendar: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" />
+    </Svg>
+  ),
+  Star: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="m12 3 2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z" {...solid} />
+    </Svg>
+  ),
 };
 
 // ---------------------------------------------------------------------------
@@ -207,5 +253,29 @@ export function SoundButton({ muted, onToggle, className }: { muted: boolean; on
       {muted ? <Icon.SoundOff className="text-base text-white/55" /> : <Icon.SoundOn className="text-base text-boost" />}
       <span className="hidden sm:inline">{muted ? 'Muted' : 'Sound'}</span>
     </button>
+  );
+}
+
+/** 0..100 rating drawn as ten cells over the 50..100 band, where the whole grid actually lives. */
+export function StatMeter({ label, value, color }: { label: string; value: number; color: string }) {
+  const cells = Math.max(0, Math.min(10, (value - 50) / 5));
+  return (
+    <div className="grid grid-cols-[6.75rem_1fr_1.75rem] items-center gap-3">
+      <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/55">{label}</span>
+      <div className="flex gap-[3px]" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={value}>
+        {Array.from({ length: 10 }, (_, i) => {
+          const f = Math.max(0, Math.min(1, cells - i));
+          return (
+            <span key={i} className="relative h-2.5 flex-1 skew-x-[-18deg] overflow-hidden rounded-[2px] bg-white/10">
+              <span
+                className="absolute inset-y-0 left-0 transition-[width] duration-300"
+                style={{ width: `${f * 100}%`, background: color, boxShadow: f > 0 ? `0 0 10px ${color}55` : undefined }}
+              />
+            </span>
+          );
+        })}
+      </div>
+      <span className="text-right font-display text-xs tabular-nums text-white/80">{value}</span>
+    </div>
   );
 }

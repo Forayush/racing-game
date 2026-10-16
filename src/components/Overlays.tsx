@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react';
-import type { HudSnapshot, RunStats } from '@/game/engine';
+import type { HudSnapshot, RunStats } from '@/game/arcade';
 import { driverColor, type Driver } from '@/game/drivers';
 import type { ScoreEntry } from '@/game/highscores';
 import HighScoreTable from './HighScoreTable';

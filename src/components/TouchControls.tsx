@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
-import type { Game } from '@/game/engine';
+import type { Engine } from '@/game/core';
 import type { Input, TouchKey } from '@/game/input';
 import { Icon } from './ui';
 import { cn } from '@/utils/cn';
 
 interface Props {
   input: Input;
-  game: Game;
+  game: Engine;
+  /** Label on the power button: BOOST in arcade, ERS on circuits. */
+  boostLabel?: string;
 }
 
 function TouchButton({
@@ -61,7 +63,7 @@ function TouchButton({
   );
 }
 
-export default function TouchControls({ input, game }: Props) {
+export default function TouchControls({ input, game, boostLabel = 'BOOST' }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const boostRef = useRef<HTMLButtonElement>(null);
 
@@ -80,9 +82,9 @@ export default function TouchControls({ input, game }: Props) {
     const tick = () => {
       const el = boostRef.current;
       if (el) {
-        const s = game.snapshot();
-        el.style.setProperty('--fill', s.boostFill.toFixed(3));
-        const state = s.boosting ? 'boosting' : s.boostReady ? 'ready' : 'charging';
+        const m = game.meter();
+        el.style.setProperty('--fill', m.fill.toFixed(3));
+        const state = m.active ? 'boosting' : m.ready ? 'ready' : 'charging';
         if (el.dataset.state !== state) el.dataset.state = state;
       }
       raf = requestAnimationFrame(tick);
@@ -111,12 +113,12 @@ export default function TouchControls({ input, game }: Props) {
         <TouchButton
           input={input}
           action="boost"
-          label="Boost"
+          label={boostLabel === 'ERS' ? 'Deploy ERS' : 'Boost'}
           buttonRef={boostRef}
           className="boost-btn h-[80px] w-[80px] gap-0.5 rounded-full border-boost/50 text-[11px] tracking-widest text-boost"
         >
           <Icon.Bolt className="text-2xl" />
-          BOOST
+          {boostLabel}
         </TouchButton>
       </div>
     </div>

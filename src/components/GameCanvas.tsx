@@ -1,27 +1,25 @@
 import { useEffect, useRef } from 'react';
-import { Game, type Phase, type RunStats } from '@/game/engine';
+import type { Engine } from '@/game/core';
 import type { Input } from '@/game/input';
-import type { AudioEngine } from '@/game/audio';
 
 interface Props {
   input: Input;
-  audio: AudioEngine;
+  /** Builds the engine for the current session; called again whenever `session` changes. */
+  create: (canvas: HTMLCanvasElement) => Engine;
+  session: string;
   steerEnabled: boolean;
-  onReady: (game: Game) => void;
-  onGameOver: (stats: RunStats) => void;
-  onPhase: (phase: Phase) => void;
-  onMute: (muted: boolean) => void;
+  onReady: (engine: Engine) => void;
   onTouchDetected: () => void;
 }
 
 type Side = 'left' | 'right';
 
-export default function GameCanvas({ input, audio, steerEnabled, onReady, onGameOver, onPhase, onMute, onTouchDetected }: Props) {
+export default function GameCanvas({ input, create, session, steerEnabled, onReady, onTouchDetected }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const safeRef = useRef<HTMLDivElement>(null);
-  const cbRef = useRef({ onGameOver, onPhase, onMute, onReady, onTouchDetected });
-  cbRef.current = { onGameOver, onPhase, onMute, onReady, onTouchDetected };
+  const cbRef = useRef({ create, onReady, onTouchDetected });
+  cbRef.current = { create, onReady, onTouchDetected };
   const pointers = useRef(new Map<number, Side>());
   const steerRef = useRef(steerEnabled);
   steerRef.current = steerEnabled;
@@ -31,11 +29,7 @@ export default function GameCanvas({ input, audio, steerEnabled, onReady, onGame
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
 
-    const game = new Game(canvas, input, audio, {
-      onGameOver: (s) => cbRef.current.onGameOver(s),
-      onPhase: (p) => cbRef.current.onPhase(p),
-      onMute: (m) => cbRef.current.onMute(m),
-    });
+    const engine = cbRef.current.create(canvas);
 
     const doResize = () => {
       const w = wrap.clientWidth;
@@ -50,23 +44,23 @@ export default function GameCanvas({ input, audio, steerEnabled, onReady, onGame
       if (probe) {
         const cs = getComputedStyle(probe);
         const px = (v: string) => parseFloat(v) || 0;
-        game.setSafeArea(px(cs.paddingTop), px(cs.paddingRight), px(cs.paddingBottom), px(cs.paddingLeft));
+        engine.setSafeArea(px(cs.paddingTop), px(cs.paddingRight), px(cs.paddingBottom), px(cs.paddingLeft));
       }
-      game.resize(w, h, dpr);
+      engine.resize(w, h, dpr);
     };
     doResize();
     const ro = new ResizeObserver(doResize);
     ro.observe(wrap);
     window.addEventListener('orientationchange', doResize);
-    cbRef.current.onReady(game);
+    engine.start();
+    cbRef.current.onReady(engine);
 
     return () => {
       ro.disconnect();
       window.removeEventListener('orientationchange', doResize);
-      game.destroy();
+      engine.destroy();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session]);
 
   // release any held steering when controls get disabled (pause / game over)
   useEffect(() => {

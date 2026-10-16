@@ -12,7 +12,16 @@ export type SpriteKind =
   | 'tirewall'
   | 'gate'
   | 'gateStart'
-  | 'flag';
+  | 'flag'
+  | 'pine'
+  | 'palm'
+  | 'building0'
+  | 'building1'
+  | 'building2'
+  | 'wall0'
+  | 'wall1'
+  | 'wall2'
+  | 'wall3';
 
 export interface Vec3 {
   x: number;
@@ -50,7 +59,12 @@ export interface Segment {
   index: number;
   p1: Point3;
   p2: Point3;
+  /** Visual bend for the renderer. */
   curve: number;
+  /** Physical curvature, 1/m (+ = right). 0 on the arcade road. */
+  kappa: number;
+  /** Compass heading at the segment start, radians (circuits only). */
+  heading: number;
   colorKey: ColorKey;
   sprites: RoadSprite[];
   cars: TrafficCar[];
@@ -95,6 +109,8 @@ class Builder {
       p1: newPoint(this.lastY(), n * SEGMENT_LENGTH),
       p2: newPoint(y, (n + 1) * SEGMENT_LENGTH),
       curve,
+      kappa: 0,
+      heading: 0,
       colorKey: Math.floor(n / RUMBLE_LENGTH) % 2 ? 'dark' : 'light',
       sprites: [],
       cars: [],

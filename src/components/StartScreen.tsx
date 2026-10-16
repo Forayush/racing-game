@@ -2,14 +2,16 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { DRIVERS, driverColor, inkOn, type Driver } from '@/game/drivers';
 import type { ScoreEntry } from '@/game/highscores';
 import CarPreview from './CarPreview';
+import DriverPicker from './DriverPicker';
 import HighScoreTable from './HighScoreTable';
-import { Icon, Kbd, RaceButton, SoundButton, fmt } from './ui';
+import { Icon, Kbd, RaceButton, SoundButton, StatMeter, fmt } from './ui';
 import { cn } from '@/utils/cn';
 
 interface Props {
   selected: Driver;
   onSelect: (d: Driver) => void;
   onStart: () => void;
+  onBack: () => void;
   scores: ScoreEntry[];
   onClearScores: () => void;
   muted: boolean;
@@ -24,23 +26,6 @@ const STAT_ROWS = [
   ['accel', 'Acceleration'],
   ['grip', 'Grip'],
 ] as const;
-
-function StatMeter({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="grid grid-cols-[6.75rem_1fr] items-center gap-3">
-      <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/55">{label}</span>
-      <div className="flex gap-1" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={5} aria-valuenow={value}>
-        {[1, 2, 3, 4, 5].map((i) => (
-          <span
-            key={i}
-            className="h-2.5 flex-1 skew-x-[-18deg] rounded-[2px] transition-colors duration-300"
-            style={{ background: i <= value ? color : 'rgba(255,255,255,0.1)', boxShadow: i <= value ? `0 0 10px ${color}55` : undefined }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function Logo() {
   return (
@@ -108,7 +93,10 @@ function Showroom({ driver, onStep, onStart, isTouch }: { driver: Driver; onStep
               #{driver.number}
             </span>
             <span className="truncate">{driver.country}</span>
-            <span className="ml-auto font-display tracking-[0.15em] text-white/35">
+            <span className="ml-auto flex items-center gap-1.5 rounded-md border border-white/15 bg-black/40 px-2 py-1 tracking-[0.2em]" title="Overall driver rating">
+              OVR <b className="font-display text-sm tracking-normal text-white">{driver.rating}</b>
+            </span>
+            <span className="font-display tracking-[0.15em] text-white/35">
               {idx + 1}/{DRIVERS.length}
             </span>
           </div>
@@ -157,39 +145,7 @@ function Roster({ selected, onSelect, isTouch }: { selected: Driver; onSelect: (
           </span>
         )}
       </div>
-      <div className="grid grid-cols-6 gap-1.5 sm:gap-2.5">
-        {DRIVERS.map((d) => {
-          const sel = d.id === selected.id;
-          const c = driverColor(d);
-          return (
-            <button
-              key={d.id}
-              type="button"
-              data-driver
-              aria-pressed={sel}
-              aria-label={`${d.name}, ${d.team}`}
-              onClick={() => onSelect(d)}
-              className={cn(
-                'group relative flex min-w-0 flex-col items-center overflow-hidden rounded-xl border px-1 pb-2 pt-2.5 transition duration-200',
-                sel
-                  ? 'border-white/70 bg-white/[0.1] shadow-[0_0_26px_-8px_var(--c)]'
-                  : 'border-white/[0.08] bg-black/35 hover:border-white/30 hover:bg-white/[0.05]',
-              )}
-              style={{ '--c': c } as CSSProperties}
-            >
-              <span className="absolute inset-x-0 top-0 h-1 transition-opacity" style={{ background: c, opacity: sel ? 1 : 0.5 }} />
-              <CarPreview
-                livery={d.livery}
-                className={cn('h-auto w-full transition-transform duration-200', sel ? 'scale-105' : 'opacity-80 group-hover:-translate-y-0.5')}
-              />
-              <span className="mt-0.5 font-display text-lg italic leading-none sm:mt-1 sm:text-xl" style={{ color: c }}>
-                {d.number}
-              </span>
-              <span className={cn('mt-1 text-[10px] font-bold tracking-[0.18em]', sel ? 'text-white' : 'text-white/55')}>{d.short}</span>
-            </button>
-          );
-        })}
-      </div>
+      <DriverPicker selectedId={selected.id} onSelect={onSelect} />
     </div>
   );
 }
@@ -293,7 +249,7 @@ function SidePanel({ tab, onTab, scores, onClearScores, isTouch }: { tab: Tab; o
   );
 }
 
-export default function StartScreen({ selected, onSelect, onStart, scores, onClearScores, muted, onToggleMute, isTouch }: Props) {
+export default function StartScreen({ selected, onSelect, onStart, onBack, scores, onClearScores, muted, onToggleMute, isTouch }: Props) {
   // first-timers land on the instructions, returning players on their times
   const [tab, setTab] = useState<Tab>(() => (scores.length > 0 ? 'board' : 'howto'));
   const idx = Math.max(0, DRIVERS.findIndex((d) => d.id === selected.id));
@@ -328,11 +284,16 @@ export default function StartScreen({ selected, onSelect, onStart, scores, onCle
         case 'KeyM':
           if (!e.repeat) onToggleMute();
           break;
+        case 'Escape':
+          if (e.repeat) return;
+          onBack();
+          e.preventDefault();
+          break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [idx, onSelect, onStart, onToggleMute]);
+  }, [idx, onSelect, onStart, onBack, onToggleMute]);
 
   return (
     <div
@@ -344,7 +305,18 @@ export default function StartScreen({ selected, onSelect, onStart, scores, onCle
 
       <div className="relative mx-auto flex min-h-full w-full max-w-7xl flex-col px-4 pb-32 pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 lg:px-10 roomy:pb-8 roomy:lg:pt-7">
         <header className="flex animate-slide-up items-center justify-between gap-3">
-          <Logo />
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to main menu"
+              title="Back (Esc)"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-black/45 text-lg text-white/80 transition hover:border-white/35 hover:bg-white/10 hover:text-white"
+            >
+              <Icon.Back />
+            </button>
+            <Logo />
+          </div>
           <div className="flex shrink-0 items-center gap-2">
             {best > 0 && (
               <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-black/45 px-3.5 py-2 sm:flex">

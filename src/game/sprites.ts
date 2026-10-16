@@ -1,6 +1,7 @@
 import { COLORS, FONT_DISPLAY } from './constants';
 import type { Livery } from './drivers';
 import type { SpriteKind } from './track';
+import { ARCADE_PALETTE, type Palette, type SunStyle } from './themes';
 
 export interface SpriteImage {
   canvas: HTMLCanvasElement;
@@ -163,6 +164,11 @@ export function renderCar(l: Livery, W = 240, H = 130): HTMLCanvasElement {
   ctx.fillStyle = '#0d0d0d';
   roundRect(ctx, 107, 22, 26, 16, 5);
   ctx.fill();
+  if (l.tcam) {
+    ctx.fillStyle = l.tcam;
+    roundRect(ctx, 111, 25, 18, 5, 1.5);
+    ctx.fill();
+  }
   ctx.fillStyle = l.helmet;
   ctx.beginPath();
   ctx.arc(120, 22, 7, Math.PI, 0);
@@ -386,9 +392,191 @@ function renderFlag(): HTMLCanvasElement {
   return c;
 }
 
+// ---------------------------------------------------------------------------
+// Circuit scenery
+// ---------------------------------------------------------------------------
+function renderPine(): HTMLCanvasElement {
+  const W = 120;
+  const H = 280;
+  const [c, ctx] = makeCanvas(W, H);
+  ctx.fillStyle = '#3a2a1c';
+  ctx.fillRect(W * 0.46, H * 0.78, W * 0.08, H * 0.22);
+  const tiers = 5;
+  for (let i = 0; i < tiers; i++) {
+    const t = i / (tiers - 1);
+    const y0 = H * (0.03 + t * 0.6);
+    const y1 = y0 + H * 0.26;
+    const half = W * (0.16 + t * 0.33);
+    const g = ctx.createLinearGradient(W / 2 - half, 0, W / 2 + half, 0);
+    g.addColorStop(0, '#24543a');
+    g.addColorStop(0.55, '#173f27');
+    g.addColorStop(1, '#0c2717');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(W / 2, y0);
+    ctx.lineTo(W / 2 + half, y1);
+    ctx.lineTo(W / 2 - half, y1);
+    ctx.closePath();
+    ctx.fill();
+  }
+  return c;
+}
+
+function renderPalm(): HTMLCanvasElement {
+  const W = 200;
+  const H = 300;
+  const [c, ctx] = makeCanvas(W, H);
+  const cx = W * 0.54;
+  const cy = H * 0.26;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#7a5a3a';
+  ctx.lineWidth = 11;
+  ctx.beginPath();
+  ctx.moveTo(W * 0.48, H);
+  ctx.quadraticCurveTo(W * 0.4, H * 0.6, cx, cy);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+  ctx.lineWidth = 2;
+  for (let i = 1; i < 10; i++) {
+    const t = i / 10;
+    const x = (1 - t) * (1 - t) * W * 0.48 + 2 * (1 - t) * t * W * 0.4 + t * t * cx;
+    const y = (1 - t) * (1 - t) * H + 2 * (1 - t) * t * H * 0.6 + t * t * cy;
+    ctx.beginPath();
+    ctx.moveTo(x - 5, y);
+    ctx.lineTo(x + 5, y - 2);
+    ctx.stroke();
+  }
+  const fronds: [number, number][] = [
+    [-2.9, 0.95],
+    [-2.3, 1],
+    [-1.75, 0.8],
+    [-1.25, 0.8],
+    [-0.75, 1],
+    [-0.15, 0.95],
+    [0.35, 0.85],
+    [2.75, 0.85],
+  ];
+  for (const [a, len] of fronds) {
+    const L = W * 0.46 * len;
+    const ex = cx + Math.cos(a) * L;
+    const ey = cy + Math.sin(a) * L * 0.55 + L * 0.42;
+    const mx = cx + Math.cos(a) * L * 0.55;
+    const my = cy + Math.sin(a) * L * 0.55 - L * 0.12;
+    ctx.strokeStyle = '#1f6b34';
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.quadraticCurveTo(mx, my, ex, ey);
+    ctx.stroke();
+    ctx.strokeStyle = '#3f9a52';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.quadraticCurveTo(mx, my - 2, ex, ey - 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#5a3d22';
+  ctx.beginPath();
+  ctx.arc(cx, cy + 4, 7, 0, Math.PI * 2);
+  ctx.fill();
+  return c;
+}
+
+function renderBuilding(variant: number, night: boolean): HTMLCanvasElement {
+  const W = 260;
+  const H = 420;
+  const [c, ctx] = makeCanvas(W, H);
+  const dayBodies = ['#eadcc2', '#d8a27b', '#f1eee8'];
+  const nightBodies = ['#151b36', '#1c1731', '#101a2d'];
+  const body = night ? nightBodies[variant % 3] : dayBodies[variant % 3];
+  const top = H * [0.06, 0.24, 0.14][variant % 3];
+  ctx.fillStyle = body;
+  ctx.fillRect(0, top, W, H - top);
+  ctx.fillStyle = 'rgba(0,0,0,0.14)';
+  ctx.fillRect(W * 0.72, top, W * 0.28, H - top);
+  ctx.fillStyle = night ? '#2a3260' : 'rgba(0,0,0,0.2)';
+  ctx.fillRect(0, top, W, 7);
+  const cols = 5;
+  const rows = Math.floor((H - top - 70) / 34);
+  for (let r = 0; r < rows; r++) {
+    for (let col = 0; col < cols; col++) {
+      const x = 16 + col * 48;
+      const y = top + 24 + r * 34;
+      if (night) {
+        const lit = Math.random() < 0.55;
+        ctx.fillStyle = lit ? (Math.random() < 0.75 ? '#ffd98a' : '#9bd8ff') : '#0a0e1d';
+        ctx.fillRect(x, y, 28, 18);
+      } else {
+        ctx.fillStyle = '#5b7a93';
+        ctx.fillRect(x, y, 28, 18);
+        ctx.fillStyle = 'rgba(255,255,255,0.28)';
+        ctx.fillRect(x, y, 28, 4);
+        if (variant % 3 === 1) {
+          // shutters, Riviera style
+          ctx.fillStyle = '#3f7a52';
+          ctx.fillRect(x - 5, y, 5, 18);
+          ctx.fillRect(x + 28, y, 5, 18);
+        }
+      }
+    }
+  }
+  // street level
+  ctx.fillStyle = night ? '#ffb347' : '#3a3f47';
+  ctx.globalAlpha = night ? 0.55 : 1;
+  ctx.fillRect(0, H - 46, W, 30);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = night ? '#0a0d1a' : '#2a2e35';
+  ctx.fillRect(0, H - 16, W, 16);
+  return c;
+}
+
+const BARRIER_ADS = [
+  { bg: '#e10600', fg: '#ffffff', text: 'APEX' },
+  { bg: '#111111', fg: '#ffd400', text: 'TURBO 9' },
+  { bg: '#1d4ed8', fg: '#ffffff', text: 'VELOCE' },
+  { bg: '#f59e0b', fg: '#111111', text: 'GRIDLINE' },
+];
+
+function renderWall(variant: number): HTMLCanvasElement {
+  const W = 400;
+  const H = 96;
+  const [c, ctx] = makeCanvas(W, H);
+  // catch fence
+  ctx.strokeStyle = '#8b919b';
+  ctx.lineWidth = 3;
+  for (let x = 14; x < W; x += 96) {
+    ctx.beginPath();
+    ctx.moveTo(x, 40);
+    ctx.lineTo(x, 2);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(170,178,190,0.55)';
+  ctx.lineWidth = 1.5;
+  for (let y = 6; y < 40; y += 8) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+  // concrete + advertising band
+  ctx.fillStyle = '#d6d7dc';
+  ctx.fillRect(0, 38, W, 58);
+  ctx.fillStyle = 'rgba(0,0,0,0.16)';
+  ctx.fillRect(0, 84, W, 12);
+  const ad = BARRIER_ADS[variant % BARRIER_ADS.length];
+  ctx.fillStyle = ad.bg;
+  ctx.fillRect(0, 46, W, 30);
+  ctx.fillStyle = ad.fg;
+  ctx.font = `700 22px ${FONT_DISPLAY}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(ad.text, W / 2, 62);
+  return c;
+}
+
 export type SpriteAtlas = Record<SpriteKind, SpriteImage>;
 
-export function buildSpriteAtlas(): SpriteAtlas {
+export function buildSpriteAtlas(p: Palette = ARCADE_PALETTE): SpriteAtlas {
   const wrap = (canvas: HTMLCanvasElement, worldW: number): SpriteImage => ({
     canvas,
     w: canvas.width,
@@ -408,25 +596,55 @@ export function buildSpriteAtlas(): SpriteAtlas {
     gate: wrap(renderGate('CHECKPOINT', false), 6000),
     gateStart: wrap(renderGate('APEX GP', true), 6000),
     flag: wrap(renderFlag(), 300),
+    pine: wrap(renderPine(), 900),
+    palm: wrap(renderPalm(), 1300),
+    building0: wrap(renderBuilding(0, p.night), 3000),
+    building1: wrap(renderBuilding(1, p.night), 3000),
+    building2: wrap(renderBuilding(2, p.night), 3000),
+    wall0: wrap(renderWall(0), 2600),
+    wall1: wrap(renderWall(1), 2600),
+    wall2: wrap(renderWall(2), 2600),
+    wall3: wrap(renderWall(3), 2600),
   };
 }
 
 // ---------------------------------------------------------------------------
 // Backdrop layers
 // ---------------------------------------------------------------------------
-export function renderSky(W: number, H: number, horizon: number): HTMLCanvasElement {
+
+/** Sun disc with glow; drawn into the sky image (arcade) or per frame so it tracks the heading (circuits). */
+export function drawSun(ctx: CanvasRenderingContext2D, sx: number, sy: number, r: number, sun: SunStyle) {
+  const glow = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 2.4);
+  glow.addColorStop(0, sun.glow);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(sx - r * 2.4, sy - r * 2.4, r * 4.8, r * 4.8);
+  const body = ctx.createLinearGradient(0, sy - r, 0, sy + r);
+  body.addColorStop(0, sun.core);
+  body.addColorStop(0.5, sun.color);
+  body.addColorStop(1, sun.bands ? '#ff6b3d' : sun.color);
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(sx, sy, r, 0, Math.PI * 2);
+  ctx.fill();
+  if (sun.bands) {
+    ctx.fillStyle = 'rgba(138,45,92,0.55)';
+    for (let i = 0; i < 5; i++) {
+      const by = sy + r * (0.15 + i * 0.17);
+      ctx.fillRect(sx - r, by, r * 2, 2 + i * 1.3);
+    }
+  }
+}
+
+export function renderSky(W: number, H: number, horizon: number, p: Palette = ARCADE_PALETTE, withSun = true): HTMLCanvasElement {
   const [c, ctx] = makeCanvas(Math.max(1, W), Math.max(1, horizon + 2));
   const g = ctx.createLinearGradient(0, 0, 0, horizon);
-  g.addColorStop(0, COLORS.skyTop);
-  g.addColorStop(0.4, COLORS.skyMid);
-  g.addColorStop(0.72, COLORS.skyLow);
-  g.addColorStop(0.92, '#d9575b');
-  g.addColorStop(1, COLORS.skyHorizon);
+  for (const [t, col] of p.sky) g.addColorStop(t, col);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, horizon + 2);
 
-  // stars
-  for (let i = 0; i < 90; i++) {
+  const stars = Math.round(90 * p.stars);
+  for (let i = 0; i < stars; i++) {
     const x = Math.random() * W;
     const y = Math.random() * horizon * 0.55;
     const a = 0.25 + Math.random() * 0.6;
@@ -435,62 +653,119 @@ export function renderSky(W: number, H: number, horizon: number): HTMLCanvasElem
     ctx.fillRect(x, y, r, r);
   }
 
-  // sun
-  const r = Math.min(W, H) * 0.16;
-  const sx = W * 0.66;
-  const sy = horizon - r * 0.25;
-  const glow = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 2.4);
-  glow.addColorStop(0, 'rgba(255,170,90,0.55)');
-  glow.addColorStop(1, 'rgba(255,170,90,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, W, horizon + 2);
-  const sun = ctx.createLinearGradient(0, sy - r, 0, sy + r);
-  sun.addColorStop(0, COLORS.sunCore);
-  sun.addColorStop(0.5, COLORS.sun);
-  sun.addColorStop(1, '#ff6b3d');
-  ctx.fillStyle = sun;
-  ctx.beginPath();
-  ctx.arc(sx, sy, r, 0, Math.PI * 2);
-  ctx.fill();
-  // retro bands across the lower half of the sun
-  ctx.fillStyle = 'rgba(138,45,92,0.55)';
-  for (let i = 0; i < 5; i++) {
-    const by = sy + r * (0.15 + i * 0.17);
-    ctx.fillRect(sx - r, by, r * 2, 2 + i * 1.3);
+  if (withSun && p.sun) {
+    const r = Math.min(W, H) * p.sun.size;
+    drawSun(ctx, W * 0.66, horizon - r * 0.25, r, p.sun);
   }
   return c;
 }
 
-export function renderMountains(W: number, H: number): HTMLCanvasElement {
+/** Periodic ridge profile in 0..1 so the tile wraps seamlessly. */
+function ridge(t: number, terms: [number, number, number][], base: number) {
+  let f = base;
+  for (const [amp, freq, phase] of terms) f += amp * Math.sin(t * freq + phase);
+  return f;
+}
+
+export function renderMountains(W: number, H: number, p: Palette = ARCADE_PALETTE): HTMLCanvasElement {
   const tileW = Math.max(2, W * 2);
-  const mh = Math.max(2, Math.floor(H * 0.2));
+  if (p.horizon === 'skyline') return renderSkyline(tileW, H, p);
+  const tall = p.horizon === 'alps' ? 0.3 : p.horizon === 'dunes' ? 0.11 : 0.2;
+  const mh = Math.max(2, Math.floor(H * tall));
   const [c, ctx] = makeCanvas(tileW, mh);
+  const terms: [number, number, number][] =
+    p.horizon === 'alps'
+      ? [
+          [0.2, 3, 1.2],
+          [0.16, 7, 2.1],
+          [0.12, 13, 0.4],
+          [0.07, 29, 3.3],
+          [0.04, 53, 1.1],
+        ]
+      : p.horizon === 'dunes'
+        ? [
+            [0.25, 2, 0.6],
+            [0.12, 5, 2.2],
+            [0.05, 9, 1.4],
+          ]
+        : [
+            [0.22, 3, 1.2],
+            [0.16, 7, 2.1],
+            [0.09, 13, 0.4],
+            [0.05, 29, 3.3],
+          ];
+  const base = p.horizon === 'dunes' ? 0.45 : 0.42;
   ctx.beginPath();
   ctx.moveTo(0, mh);
   for (let x = 0; x <= tileW; x += 3) {
     const t = (x / tileW) * Math.PI * 2;
-    const f =
-      0.42 +
-      0.22 * Math.sin(t * 3 + 1.2) +
-      0.16 * Math.sin(t * 7 + 2.1) +
-      0.09 * Math.sin(t * 13 + 0.4) +
-      0.05 * Math.sin(t * 29 + 3.3);
-    ctx.lineTo(x, mh - f * mh);
+    ctx.lineTo(x, mh - ridge(t, terms, base) * mh);
   }
   ctx.lineTo(tileW, mh);
   ctx.closePath();
   const g = ctx.createLinearGradient(0, 0, 0, mh);
-  g.addColorStop(0, '#4a1f5e');
-  g.addColorStop(1, COLORS.mountains);
+  g.addColorStop(0, p.mountains[0]);
+  g.addColorStop(1, p.mountains[1]);
   ctx.fillStyle = g;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,160,120,0.35)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  if (p.horizon === 'alps') {
+    // snow above a wavy line, clipped to the peaks
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = 'rgba(245,250,255,0.92)';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    for (let x = 0; x <= tileW; x += 6) {
+      const t = (x / tileW) * Math.PI * 2;
+      ctx.lineTo(x, mh * (0.34 + 0.05 * Math.sin(t * 17) + 0.03 * Math.sin(t * 41)));
+    }
+    ctx.lineTo(tileW, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  } else {
+    ctx.strokeStyle = p.ridge;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
   return c;
 }
 
-export function renderHills(W: number, H: number): HTMLCanvasElement {
+function renderSkyline(tileW: number, H: number, p: Palette): HTMLCanvasElement {
+  const mh = Math.max(2, Math.floor(H * 0.22));
+  const [c, ctx] = makeCanvas(tileW, mh);
+  // far hazy layer then near blocks; buildings that cross the right edge repeat on the left
+  for (const layer of [0, 1]) {
+    let x = 0;
+    while (x < tileW) {
+      const w = 30 + Math.random() * 70;
+      const h = mh * (layer ? 0.25 + Math.random() * 0.55 : 0.4 + Math.random() * 0.5);
+      const col = layer ? p.mountains[1] : p.mountains[0];
+      for (const ox of x + w > tileW ? [x, x - tileW] : [x]) {
+        ctx.fillStyle = col;
+        ctx.fillRect(ox, mh - h, w, h);
+        if (p.night) {
+          for (let wy = mh - h + 6; wy < mh - 4; wy += 7) {
+            for (let wx = ox + 4; wx < ox + w - 4; wx += 6) {
+              if (Math.random() < 0.28) {
+                ctx.fillStyle = Math.random() < 0.8 ? 'rgba(255,214,140,0.85)' : 'rgba(150,210,255,0.85)';
+                ctx.fillRect(wx, wy, 2, 3);
+              }
+            }
+          }
+        }
+        if (Math.random() < 0.2) {
+          ctx.fillStyle = p.night ? '#ff4d4d' : 'rgba(0,0,0,0.25)';
+          ctx.fillRect(ox + w / 2 - 1, mh - h - 8, 2, 8);
+        }
+      }
+      x += w + (layer ? 2 + Math.random() * 10 : 6 + Math.random() * 24);
+    }
+  }
+  return c;
+}
+
+export function renderHills(W: number, H: number, p: Palette = ARCADE_PALETTE): HTMLCanvasElement {
   const tileW = Math.max(2, W * 2);
   const hh = Math.max(2, Math.floor(H * 0.1));
   const [c, ctx] = makeCanvas(tileW, hh);
@@ -503,13 +778,16 @@ export function renderHills(W: number, H: number): HTMLCanvasElement {
   }
   ctx.lineTo(tileW, hh);
   ctx.closePath();
-  ctx.fillStyle = COLORS.hills;
+  ctx.fillStyle = p.hills;
   ctx.fill();
-  // distant paddock lights
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < p.hillLights; i++) {
     const x = Math.random() * tileW;
     const y = hh * (0.55 + Math.random() * 0.4);
-    ctx.fillStyle = Math.random() < 0.7 ? 'rgba(255,220,150,0.9)' : 'rgba(255,90,90,0.9)';
+    ctx.fillStyle = p.night
+      ? ['rgba(255,220,150,0.9)', 'rgba(150,210,255,0.9)', 'rgba(255,255,255,0.85)'][i % 3]
+      : Math.random() < 0.7
+        ? 'rgba(255,220,150,0.9)'
+        : 'rgba(255,90,90,0.9)';
     ctx.fillRect(x, y, 2, 2);
   }
   return c;
